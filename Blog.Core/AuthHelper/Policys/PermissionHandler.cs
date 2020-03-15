@@ -41,13 +41,21 @@ namespace Blog.Core.AuthHelper
         // 重写异步处理程序
         protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
         {
-            //从AuthorizationHandlerContext转成HttpContext，以便取出表求信息
-            var filterContext = (context.Resource as Microsoft.AspNetCore.Mvc.Filters.AuthorizationFilterContext);
-            var httpContext = (context.Resource as Microsoft.AspNetCore.Mvc.Filters.AuthorizationFilterContext)?.HttpContext;
 
-            if (httpContext == null)
+            var httpContext = _accessor.HttpContext;
+
+            if (!requirement.Permissions.Any())
             {
-                httpContext = _accessor.HttpContext;
+                var data = await _roleModulePermissionServices.RoleModuleMaps();
+                var list = (from item in data
+                            where item.IsDeleted == false
+                            orderby item.Id
+                            select new PermissionItem
+                            {
+                                Url = item.Module?.LinkUrl,
+                                Role = item.Role?.Id.ObjToString(),
+                            }).ToList();
+                requirement.Permissions = list;
             }
 
             //请求Url
@@ -127,7 +135,7 @@ namespace Blog.Core.AuthHelper
                                 return;
                             }
                         }
-                       
+
                         //判断过期时间（这里仅仅是最坏验证原则，你可以不要这个if else的判断，因为我们使用的官方验证，Token过期后上边的result?.Principal 就为 null 了，进不到这里了，因此这里其实可以不用验证过期时间，只是做最后严谨判断）
                         if ((httpContext.User.Claims.SingleOrDefault(s => s.Type == ClaimTypes.Expiration)?.Value) != null && DateTime.Parse(httpContext.User.Claims.SingleOrDefault(s => s.Type == ClaimTypes.Expiration)?.Value) >= DateTime.Now)
                         {

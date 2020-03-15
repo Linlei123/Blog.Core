@@ -1,6 +1,9 @@
-﻿using Blog.Core.Common.DB;
+﻿using Blog.Core.Common;
+using Blog.Core.Common.DB;
 using Microsoft.Extensions.DependencyInjection;
+using SqlSugar;
 using System;
+using System.Collections.Generic;
 
 namespace Blog.Core.Extensions
 {
@@ -13,15 +16,39 @@ namespace Blog.Core.Extensions
         {
             if (services == null) throw new ArgumentNullException(nameof(services));
 
-            services.AddScoped<SqlSugar.ISqlSugarClient>(o =>
+            // 默认添加主数据库连接
+            MainDb.CurrentDbConnId = Appsettings.app(new string[] { "MainDB" });
+
+            // 把多个连接对象注入服务，这里必须采用Scope，因为有事务操作
+            services.AddScoped<ISqlSugarClient>(o =>
             {
-                return new SqlSugar.SqlSugarClient(new SqlSugar.ConnectionConfig()
+                var listConfig = new List<ConnectionConfig>();
+
+                BaseDBConfig.MutiConnectionString.ForEach(m =>
                 {
-                    ConnectionString = BaseDBConfig.ConnectionString,//必填, 数据库连接字符串
-                    DbType = (SqlSugar.DbType)BaseDBConfig.DbType,//必填, 数据库类型
-                    IsAutoCloseConnection = true,//默认false, 时候知道关闭数据库连接, 设置为true无需使用using或者Close操作
-                    InitKeyType = SqlSugar.InitKeyType.SystemTable//默认SystemTable, 字段信息读取, 如：该属性是不是主键，标识列等等信息
+                    listConfig.Add(new ConnectionConfig()
+                    {
+                        ConfigId = m.ConnId.ObjToString().ToLower(),
+                        ConnectionString = m.Conn,
+                        DbType = (DbType)m.DbType,
+                        IsAutoCloseConnection = true,
+                        IsShardSameThread = false,
+                        AopEvents = new AopEvents
+                        {
+                            OnLogExecuting = (sql, p) =>
+                            {
+                                // 多库操作的话，此处暂时无效果，在另一个地方有效，具体请查看BaseRepository.cs
+                            }
+                        },
+                        MoreSettings = new ConnMoreSettings()
+                        {
+                            IsAutoRemoveDataCache = true
+                        }
+                        //InitKeyType = InitKeyType.SystemTable
+                    }
+                   );
                 });
+                return new SqlSugarClient(listConfig);
             });
         }
     }
